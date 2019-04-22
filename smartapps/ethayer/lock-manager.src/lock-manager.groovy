@@ -51,6 +51,11 @@ preferences {
   page name: 'userKeypadPage'
   page name: 'userAskAlexaPage'
 
+  // Smartbnb ====
+  page name: 'smartbnbLandingPage'
+  page name: 'smartbnbSetupPage'
+  page name: 'smartbnbMainPage'
+
   // Keypad ====
   page name: 'keypadLandingPage'
   page name: 'keypadSetupPage'
@@ -64,6 +69,7 @@ preferences {
 def appPageWizard(params) {
   if (params.type) {
     // inital set app type
+    debugger("Setting app type: ${params.type}")
     setAppType(params.type)
   }
   // find the correct landing page
@@ -73,6 +79,9 @@ def appPageWizard(params) {
       break
     case 'user':
       userLandingPage()
+      break
+    case 'smartbnb':
+      smartbnbLandingPage()
       break
     case 'keypad':
       keypadLandingPage()
@@ -94,6 +103,9 @@ def installed() {
       break
     case 'user':
       userInstalled()
+      break
+    case 'smartbnb':
+      smartbnbInstalled()
       break
     case 'keypad':
       installedKeypad()
@@ -117,6 +129,9 @@ def updated() {
     case 'user':
       userUpdated()
       break
+    case 'smartbnb':
+      smartbnbUpdated()
+      break
     case 'keypad':
       updatedKeypad()
       break
@@ -136,6 +151,9 @@ def uninstalled() {
       break
     case 'user':
       userUninstalled()
+      break
+    case 'smartbnb':
+      smartbnbUninstalled()
       break
     case 'keypad':
       break
@@ -188,7 +206,7 @@ def mainSetupPage() {
 def mainPage() {
   dynamicPage(name: 'mainPage', title: 'Lock Manager', install: true, uninstall: true, submitOnChange: true) {
     section('Create New Integration') {
-      input name: "appType", type: "enum", title: "Choose Type", options: ['Lock', 'User', 'Keypad'], description: "Select the integration you need", submitOnChange: true
+      input name: "appType", type: "enum", title: "Choose Type", options: ['Lock', 'User', 'Smartbnb', 'Keypad'], description: "Select the integration you need", submitOnChange: true
       if (settings.appType) {
         def appTypeString = settings.appType
         def miniTypeString = appTypeString.toLowerCase()
@@ -573,11 +591,37 @@ def getUserApps() {
   def childApps = []
   def children = getChildApps()
   children.each { child ->
-    if (child.theAppType() == 'user') {
+    if (child.theAppType() == 'user' || child.theAppType() == 'smartbnb') {
       childApps.push(child)
     }
   }
   return childApps
+}
+
+def sendMessage(userApp, msg) {
+  if (userApp.theAppType() == 'user') {
+    userApp.sendUserMessage(msg)
+  } else {
+    userApp.sendAirbnbMessage(msg)
+  }
+}
+
+def getCode(userApp) {
+  if (userApp.theAppType() == 'user') {
+    userApp.getUserCode()
+  } else if (userApp.theAppType() == 'smartbnb') {
+    userApp.getSmartbnbCode()
+  }
+}
+
+def isValidCode() {
+  def valid = false
+  if (state.appType == 'user') {
+    valid = getUserCode()?.isNumber()
+  } else {
+    valid = true
+  }
+  return valid
 }
 
 def getKeypadApps() {
@@ -1014,7 +1058,7 @@ def updateCode(event) {
   def code = null
   def userApp = findSlotUserApp(slot)
   if (userApp) {
-    code = userApp.userCode
+    code = getCode(userApp)
   }
 
   def codeState
@@ -1118,7 +1162,7 @@ def updateCode(event) {
 
 def failRecovery(slot, previousCodeState, userApp) {
   def attempts = state.codes["slot${slot}"].recoveryAttempts
-  if (attempts > 3) {
+  if (attempts > 100) {
     if (userApp) {
       userApp.disableAndSetReason(lock.id, 'Code failed to set.  Possible duplicate or invalid PIN')
     }
@@ -1302,8 +1346,9 @@ def setCodes() {
         def codeState = state.codes["slot${data.slot}"].codeState
         if (lockUser?.isActive(lock.id) && codeState != 'recovery') {
           // is active, should be set
-          setValue = lockUser.userCode.toString()
+          setValue = getCode(lockUser).toString()
           state.codes["slot${data.slot}"].correctValue = setValue
+          debugger("${lockUser.userName}: ${data.code.toString()} ${setValue}")
           if (data.code.toString() != setValue) {
             state.codes["slot${data.slot}"].codeState = 'set'
           } else {
@@ -1409,15 +1454,15 @@ def collectCodesToSet() {
       def currentCode = data.code.toString()
       def correctCode = data.correctValue.toString()
 
-      if (correctCode != currentCode && state.codes["slot${data.slot}"].attempts < 10) {
+      if (correctCode != currentCode && state.codes["slot${data.slot}"].attempts < 100) {
         array << ["code${data.slot}", correctCode]
         incorrectSlots << data.slot
         // increment attempt count
         state.codes["slot${data.slot}"].attempts = data.attempts + 1
         count++
-      } else if (correctCode != currentCode && state.codes["slot${data.slot}"].attempts >= 10) {
+      } else if (correctCode != currentCode && state.codes["slot${data.slot}"].attempts >= 100) {
         state.codes["slot${data.slot}"].attempts = 0
-        // we've tried this slot 10 times, time to disable it
+        // we've tried this slot 100 times, time to disable it
         def userApp = findSlotUserApp(data.slot)
         userApp?.disableLock(lock.id)
       } else {
@@ -1487,7 +1532,7 @@ def codeInform(slot, action) {
     }
 
     if (shouldSend) {
-      userApp.sendUserMessage(message)
+      sendMessage(userApp, message)
     }
     debugger(message)
   } else {
@@ -1829,7 +1874,7 @@ def userMainPage() {
       }
     }
     section('Setup', hideable: true, hidden: true) {
-      label(title: "Name for App", defaultValue: 'User: ' + userName, required: true, image: 'https://images.lockmanager.io/app/v1/images/user.png')
+      label(title: "Name for App", defaultValue: 'User: ' + userName, required: false, image: 'https://images.lockmanager.io/app/v1/images/user.png')
       input name: 'userName', title: "Name for user", required: true, image: 'https://images.lockmanager.io/app/v1/images/user.png'
       input(name: "userSlot", type: "enum", options: parent.availableSlots(settings.userSlot), title: "Select slot", required: true, refreshAfterSelection: true )
     }
@@ -2070,7 +2115,7 @@ public humanReadableEndDate() {
 }
 
 def readableDateTime(date) {
-  new Date().parse(smartThingsDateFormat(), date.format(smartThingsDateFormat(), timeZone())).format("EEE, MMM d yyyy 'at' h:mma", timeZone())
+  new Date().parse(smartThingsDateFormat(), date.format(smartThingsDateFormat(), timeZone())).format("EEE, MMM d yyyy 'at' h:mma (z)", timeZone())
 }
 
 
@@ -2215,19 +2260,15 @@ def isActiveKeypad() {
 }
 
 def isUserEnabled() {
-	if (userEnabled == null || userEnabled) {  //If true or unset, return true
-		return true
-	} else {
-		return false
-	}
-}
-
-def isValidCode() {
-  if (userCode?.isNumber()) {
+  if (userEnabled == null || userEnabled) {  //If true or unset, return true
     return true
   } else {
     return false
   }
+}
+
+def getUserCode() {
+  return settings.'userCode'
 }
 
 def isNotBurned() {
@@ -2597,6 +2638,281 @@ def sendAskAlexaUser(message) {
                     unit: "User//${userName}")
 }
 
+def smartbnbInstalled() {
+  debugger("Installed with settings: ${settings}")
+  smartbnbInitialize()
+}
+
+def smartbnbUpdated() {
+  debugger("Updated with settings: ${settings}")
+  smartbnbInitialize()
+}
+
+def smartbnbInitialize() {
+  // reset listeners
+  unsubscribe()
+  unschedule()
+
+  // setup data
+  initializeLockData()
+  initializeLocks()
+  initializeState()
+
+  // set listeners
+  state.first = true
+  smartbnbCheckCode()
+}
+
+def smartbnbUninstalled() {
+  unschedule()
+
+  // prompt locks to delete this smartbnb
+  initializeLocks()
+}
+
+def initializeState() {
+  if (!state.userCode) { state.userCode = '' }
+  if (!state.startDate) { state.startDate = '' }
+  if (!state.endDate) { state.endDate = '' }
+}
+
+def smartbnbLandingPage() {
+  if (userName) {
+    smartbnbMainPage()
+  } else {
+    smartbnbSetupPage()
+  }
+}
+
+def smartbnbSetupPage() {
+  dynamicPage(name: 'smartbnbSetupPage', title: 'Setup Lock', nextPage: 'smartbnbMainPage', uninstall: true) {
+    section('Choose details for this smartbnb') {
+      def defaultTime = timeToday("13:00", timeZone()).format(smartThingsDateFormat(), timeZone())
+      def defaultEarlyCheckin = timeToday("8:00", timeZone()).format(smartThingsDateFormat(), timeZone())
+      def defaultLateCheckout = timeToday("17:00", timeZone()).format(smartThingsDateFormat(), timeZone())
+      input(name: 'userSlot',
+        type: 'enum',
+        options: parent.availableSlots(settings.userSlot),
+        title: 'Select slot',
+        required: true,
+        refreshAfterSelection: true )
+      input(name: 'userName',
+        title: 'Name for Smartbnb',
+        required: true, defaultValue: 'Smartbnb',
+        image: 'https://images.lockmanager.io/app/v1/images/user.png')
+      input(name: 'url',
+        title: 'Request URL',
+        required: true)
+    }
+  }
+}
+
+def smartbnbMainPage() {
+  //reset errors on each load
+  dynamicPage(name: 'smartbnbMainPage', title: '', install: true, uninstall: true) {
+    section('Smartbnb Settings') {
+      def usage = getAllLocksUsage()
+      def text
+      if (isActive()) {
+        text = 'active'
+      } else {
+        text = 'inactive'
+      }
+      paragraph "${text}/${usage}"
+      paragraph("User Code: " + state.userCode)
+      paragraph("Start: " + state.eventStart)
+      paragraph("End: " + state.eventEnd)
+      input(name: 'userEnabled',
+        type: 'bool',
+        title: "Smartbnb Enabled?",
+        required: false,
+        defaultValue: true,
+        refreshAfterSelection: true)
+      input(name: 'url',
+        title: 'Server URL',
+        required: true)
+      input(name: 'notification',
+        type: 'bool',
+        title: 'Send A Push Notification',
+        description: 'Notification',
+        required: false,
+        defaultValue: true)
+      input(name: 'muteAfterCheckin',
+        title: 'Mute after checkin',
+        type: 'bool',
+        defaultValue: true,
+        required: false,
+        image: 'https://images.lockmanager.io/app/v1/images/bell-slash-o.png')
+      input(name:
+        'notifyCodeChange',
+        title: 'when Code changes',
+        type: 'bool',
+        defaultValue: true,
+        required: false,
+        image: 'https://images.lockmanager.io/app/v1/images/check-circle-o.png')
+      input(name: 'notifyAccess',
+        title: 'on Smartbnb Entry',
+        type: 'bool',
+        required: false,
+        image: 'https://images.lockmanager.io/app/v1/images/unlock-alt.png')
+    }
+    section('Locks') {
+      initializeLockData()
+      def lockApps = parent.getLockApps()
+
+      lockApps.each { app ->
+        href(name: "toLockPage${app.lock.id}",
+          page: 'userLockPage',
+          params: [id: app.lock.id],
+          description: lockPageDescription(app.lock.id),
+          required: false,
+          title: app.lock.label,
+          image: lockPageImage(app.lock) )
+      }
+    }
+    section('Setup', hideable: true, hidden: true) {
+      label(title: "Name for App",
+        defaultValue: 'Smartbnb: ' + userName,
+        required: false,
+        image: 'https://images.lockmanager.io/app/v1/images/smartbnb.png')
+      input(name: 'userName',
+        title: "Name for smartbnb",
+        defaultValue: 'Smartbnb',
+        required: false,
+        image: 'https://images.lockmanager.io/app/v1/images/smartbnb.png')
+      input(name: "userSlot",
+        type: "enum",
+        options: parent.availableSlots(settings.userSlot),
+        title: "Select slot",
+        required: true,
+        refreshAfterSelection: true )
+    }
+  }
+}
+
+def sendSmartbmbMessage(msg) {
+  def hubName = location.getName()
+  msg = hubName + ": " + msg
+  if (notification) {
+    checkIfNotifySmartbmb(msg)
+  } else {
+    checkIfNotifyGlobal(msg)
+  }
+}
+
+def checkIfNotifySmartbmb(msg) {
+  if (muteAfterCheckin != null && muteAfterCheckin) {
+    if (getAllLocksUsage() < 2) {
+      sendMessageViaUser(msg)
+    }
+  } else {
+    sendMessageViaUser(msg)
+  }
+}
+
+def getSmartbnbCode() {
+  return state.userCode
+}
+
+def resetAllLocksUsage() {
+  def lockApps = parent.getLockApps()
+  lockApps.each { lockApp ->
+    if (state."lock${lockApp.lock.id}"?.usage) {
+      state."lock${lockApp.lock.id}"?.usage = 0
+    }
+  }
+}
+
+def setLockCodeAfterStateMatches(data) {
+  def newCode = data.newCode
+  debugger("testing new code: ${newCode}, state.userCode: ${state.userCode}")
+  if (!codeIsSet(newCode)) {
+    if (state.userCode == newCode) {
+      if (settings.notifyCodeChange) {
+        sendSmartbmbMessage("Setting code ${settings.userSlot} to ${state.userCode}")
+      }
+      resetAllLocksUsage()
+      parent.setAccess()
+    } else {
+      // wait another minute and try again
+      runIn(60, 'setLockCodeAfterStateMatches', [data:[newCode:newCode]])
+    }
+  }
+}
+
+def scheduleCodeCheck() {
+  runEvery15Minutes('smartbnbCheckCode')
+}
+
+// Smartbnb Automatic code setting
+def smartbnbCheckCode() {
+  def now = new Date().format("yyyy_MM_dd_HH_mm", timeZone())
+  debugger(now)
+  def params = [
+    uri: url + '/' + now
+  ]
+  debugger(params)
+  asynchttp_v1.get('smartbnbCallback', params)
+  if (state.first == true) {
+    state.first = false
+    runIn(60, 'scheduleCodeCheck')
+  }
+}
+
+def codeIsSet(code) {
+  def lockApps = parent.getLockApps()
+  def ret = true
+  lockApps.each { app ->
+    def lockApp = parent.getLockAppById(app.lock.id)
+    def slotData = lockApp.slotData(userSlot)
+    if (!state."lock${app.lock.id}".enabled) {
+      debugger("resetting lock: ${app.lock.id}")
+      sendSmartbmbMessage("Lock was disabled, resetting to try again")
+      lockReset(app.lock.id)
+    }
+    debugger("lock ${app.lock.id}: slotData: ${slotData}, code: ${code}")
+    if (slotData.code != code) {
+      ret = false
+    }
+  }
+  debugger("isCodeSet: ${ret}")
+  return ret
+}
+
+def smartbnbCallback(response, data) {
+  if (response.hasError()) {
+    debugger("response received error: ${response.getErrorMessage()}")
+    return
+  }
+
+  debugger("smartbnbCallback: ${response.json}")
+  def result
+  try {
+    result = response.json
+  } catch (e) {
+    log.error "error parsing json from response: $e"
+  }
+  if (result) {
+    if (!codeIsSet(result['code'])) {
+      debugger("Setting user code: ${result}")
+      state.userCode = result['code']
+      state.eventStart = result['start_date']
+      state.eventEnd = result['end_date']
+
+      runIn(60, 'setLockCodeAfterStateMatches', [data: [newCode: result['code']]])
+    }
+  } else if (state.userCode != '') {
+    // no result means the day is completely unbooked
+    // uset code and zero out state
+    initializeState()
+    resetAllLocksUsage()
+    parent.setAccess()
+    if (settings.notifyCodeChange) {
+      sendSmartbmbMessage("Clearing code ${settings.userSlot}")
+    }
+  }
+}
+
 def installedKeypad() {
   debugger("Keypad Installed with settings: ${settings}")
   initializeKeypad()
@@ -2776,7 +3092,7 @@ def armCommand(value, correctUser, enteredCode) {
   def message = "${keypad.label} was ${action} by ${correctUser.label}"
 
   debugger(message)
-  correctUser.sendUserMessage(message)
+  sendMessage(correctUser, message)
 }
 
 def execRoutine() {
@@ -2841,181 +3157,4 @@ def sendSHMEvent(armMode) {
   if (runDefaultAlarm) {
     sendLocationEvent(event)
   }
-}
-
-mappings {
-  path("/locks") {
-    action: [
-      GET: "listLocks"
-    ]
-  }
-  path("/token") {
-    action: [
-      POST: "gotAccountToken"
-    ]
-  }
-  path("/update-slot") {
-    action: [
-      POST: "updateSlot"
-    ]
-  }
-
-  // Big Mirror
-  path("/switches") {
-    action: [
-      GET: "listSwitches"
-    ]
-  }
-  path("/update-switch") {
-    action: [
-      POST: "updateSwitch"
-    ]
-  }
-}
-
-def apiSetupPage() {
-  dynamicPage(name: 'apiSetupPage', title: 'Setup API', uninstall: true, install: true) {
-    section('API service') {
-      input(name: 'enableAPI', title: 'Enabled?', type: 'bool', required: true, defaultValue: true, description: 'Enable API integration?')
-      if (state.accountToken) {
-        paragraph 'Token: ' + state.accountToken
-      }
-    }
-    section('Entanglements') {
-      paragraph 'Switches:'
-      input(name: 'theSwitches', title: 'Which Switches?', type: 'capability.switch', multiple: true, required: true)
-    }
-  }
-}
-
-def lockObject(lockApp) {
-  def usage = lockApp.totalUsage()
-  def pinLength = lockApp.pinLength()
-  def slotCount = lockApp.lockCodeSlots()
-  def slotData = lockApp.codeData();
-  def lockState = lockApp.lockState();
-  return [
-    name: lockApp.lock.displayName,
-    value: lockApp.lock.id,
-    usage_count: usage,
-    pin_length: pinLength,
-    slot_count: slotCount,
-    lock_state: lockState,
-    slot_data: slotData
-  ]
-}
-
-def listLocks() {
-  def locks = []
-  def lockApps = getLockApps()
-
-  lockApps.each { app ->
-    locks << lockObject(app)
-  }
-  debugger(locks)
-  return locks
-}
-
-def listSlots() {
-  def slots = []
-  def lockApps = parent.getLockApps()
-
-  lockApps.each { app ->
-    locks << lockObject(app)
-  }
-  return locks
-}
-
-def switchObject(theSwitch) {
-  return [
-    name: theSwitch.displayName,
-    key: theSwitch.id,
-    state: theSwitch.currentValue("switch")
-  ]
-}
-
-def listSwitches() {
-  def list = []
-  parent.theSwitches.each { theSwitch ->
-    list << switchObject(theSwitch)
-  }
-  return list
-}
-
-def codeUsed(lockApp, action, slot) {
-  def params = [
-    uri: 'https://api.lockmanager.io/',
-    path: 'v1/events/code-used',
-    body: [
-      token: state.accountToken,
-      lock: lockObject(lockApp),
-      action_event: action,
-      slot: slot
-    ]
-  ]
-  debugger('send switcheroo!')
-  asynchttp_v1.post(processResponse, params)
-}
-
-def processResponse(response, data) {
-  log.debug(data)
-}
-
-def updateSlot() {
-  def slot = request.JSON?.slot
-  def control = request.JSON?.control
-  def code = request.JSON?.code
-  def lock_id = request.JSON?.lock_key
-  def lockApp = parent.getLockAppById(lock_id)
-  // slot, code, control
-  lockApp.apiCodeUpdate(slot, code, control)
-}
-
-def gotAccountToken() {
-  log.debug('got called! ' + request.JSON?.token + ' ' + parent?.id)
-  state.accountToken = request.JSON?.token
-  setAccountToken(request.JSON?.token)
-  return [data: "OK"]
-}
-
-def updateSwitch() {
-  def action = request.JSON?.state
-  def switchID = request.JSON?.key
-  log.debug "got update! ${action} ${switchID}"
-  parent.theSwitches.each { theSwitch ->
-    if (theSwitch.id == switchID) {
-      if (action == 'on') {
-        theSwitch.on()
-      }
-      if (action == 'off') {
-        theSwitch.off()
-      }
-    }
-  }
-}
-
-def switchOnHandler(evt) {
-  def params = [
-    uri: 'https://api.lockmanager.io/',
-    path: '/events/switch-change',
-    body: [
-      token: state.accountToken,
-      key: evt.deviceId,
-      state: 'on'
-    ]
-  ]
-  asynchttp_v1.post(processResponse, params)
-}
-
-def switchOffHandler(evt) {
-  def params = [
-    uri: 'https://api.lockmanager.io/',
-    path: '/events/switch-change',
-    body: [
-      token: state.accountToken,
-      key: evt.deviceId,
-      state: 'off'
-    ]
-  ]
-  asynchttp_v1.post(processResponse, params)
 }

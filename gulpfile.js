@@ -9,8 +9,8 @@ gulp.task('concat', function () {
         'source/main.groovy',
         'source/lock.groovy',
         'source/user.groovy',
-        'source/keypad.groovy',
-        // 'source/api.groovy'
+        'source/smartbnb.groovy',
+        'source/keypad.groovy'
       ])
     )
     .pipe(concat('lock-manager.groovy'))

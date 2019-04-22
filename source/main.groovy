@@ -51,6 +51,11 @@ preferences {
   page name: 'userKeypadPage'
   page name: 'userAskAlexaPage'
 
+  // Smartbnb ====
+  page name: 'smartbnbLandingPage'
+  page name: 'smartbnbSetupPage'
+  page name: 'smartbnbMainPage'
+
   // Keypad ====
   page name: 'keypadLandingPage'
   page name: 'keypadSetupPage'
@@ -64,6 +69,7 @@ preferences {
 def appPageWizard(params) {
   if (params.type) {
     // inital set app type
+    debugger("Setting app type: ${params.type}")
     setAppType(params.type)
   }
   // find the correct landing page
@@ -73,6 +79,9 @@ def appPageWizard(params) {
       break
     case 'user':
       userLandingPage()
+      break
+    case 'smartbnb':
+      smartbnbLandingPage()
       break
     case 'keypad':
       keypadLandingPage()
@@ -94,6 +103,9 @@ def installed() {
       break
     case 'user':
       userInstalled()
+      break
+    case 'smartbnb':
+      smartbnbInstalled()
       break
     case 'keypad':
       installedKeypad()
@@ -117,6 +129,9 @@ def updated() {
     case 'user':
       userUpdated()
       break
+    case 'smartbnb':
+      smartbnbUpdated()
+      break
     case 'keypad':
       updatedKeypad()
       break
@@ -136,6 +151,9 @@ def uninstalled() {
       break
     case 'user':
       userUninstalled()
+      break
+    case 'smartbnb':
+      smartbnbUninstalled()
       break
     case 'keypad':
       break
@@ -188,7 +206,7 @@ def mainSetupPage() {
 def mainPage() {
   dynamicPage(name: 'mainPage', title: 'Lock Manager', install: true, uninstall: true, submitOnChange: true) {
     section('Create New Integration') {
-      input name: "appType", type: "enum", title: "Choose Type", options: ['Lock', 'User', 'Keypad'], description: "Select the integration you need", submitOnChange: true
+      input name: "appType", type: "enum", title: "Choose Type", options: ['Lock', 'User', 'Smartbnb', 'Keypad'], description: "Select the integration you need", submitOnChange: true
       if (settings.appType) {
         def appTypeString = settings.appType
         def miniTypeString = appTypeString.toLowerCase()
@@ -573,11 +591,37 @@ def getUserApps() {
   def childApps = []
   def children = getChildApps()
   children.each { child ->
-    if (child.theAppType() == 'user') {
+    if (child.theAppType() == 'user' || child.theAppType() == 'smartbnb') {
       childApps.push(child)
     }
   }
   return childApps
+}
+
+def sendMessage(userApp, msg) {
+  if (userApp.theAppType() == 'user') {
+    userApp.sendUserMessage(msg)
+  } else {
+    userApp.sendAirbnbMessage(msg)
+  }
+}
+
+def getCode(userApp) {
+  if (userApp.theAppType() == 'user') {
+    userApp.getUserCode()
+  } else if (userApp.theAppType() == 'smartbnb') {
+    userApp.getSmartbnbCode()
+  }
+}
+
+def isValidCode() {
+  def valid = false
+  if (state.appType == 'user') {
+    valid = getUserCode()?.isNumber()
+  } else {
+    valid = true
+  }
+  return valid
 }
 
 def getKeypadApps() {

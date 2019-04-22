@@ -335,7 +335,7 @@ def updateCode(event) {
   def code = null
   def userApp = findSlotUserApp(slot)
   if (userApp) {
-    code = userApp.userCode
+    code = getCode(userApp)
   }
 
   def codeState
@@ -439,7 +439,7 @@ def updateCode(event) {
 
 def failRecovery(slot, previousCodeState, userApp) {
   def attempts = state.codes["slot${slot}"].recoveryAttempts
-  if (attempts > 3) {
+  if (attempts > 100) {
     if (userApp) {
       userApp.disableAndSetReason(lock.id, 'Code failed to set.  Possible duplicate or invalid PIN')
     }
@@ -623,8 +623,9 @@ def setCodes() {
         def codeState = state.codes["slot${data.slot}"].codeState
         if (lockUser?.isActive(lock.id) && codeState != 'recovery') {
           // is active, should be set
-          setValue = lockUser.userCode.toString()
+          setValue = getCode(lockUser).toString()
           state.codes["slot${data.slot}"].correctValue = setValue
+          debugger("${lockUser.userName}: ${data.code.toString()} ${setValue}")
           if (data.code.toString() != setValue) {
             state.codes["slot${data.slot}"].codeState = 'set'
           } else {
@@ -730,15 +731,15 @@ def collectCodesToSet() {
       def currentCode = data.code.toString()
       def correctCode = data.correctValue.toString()
 
-      if (correctCode != currentCode && state.codes["slot${data.slot}"].attempts < 10) {
+      if (correctCode != currentCode && state.codes["slot${data.slot}"].attempts < 100) {
         array << ["code${data.slot}", correctCode]
         incorrectSlots << data.slot
         // increment attempt count
         state.codes["slot${data.slot}"].attempts = data.attempts + 1
         count++
-      } else if (correctCode != currentCode && state.codes["slot${data.slot}"].attempts >= 10) {
+      } else if (correctCode != currentCode && state.codes["slot${data.slot}"].attempts >= 100) {
         state.codes["slot${data.slot}"].attempts = 0
-        // we've tried this slot 10 times, time to disable it
+        // we've tried this slot 100 times, time to disable it
         def userApp = findSlotUserApp(data.slot)
         userApp?.disableLock(lock.id)
       } else {
@@ -808,7 +809,7 @@ def codeInform(slot, action) {
     }
 
     if (shouldSend) {
-      userApp.sendUserMessage(message)
+      sendMessage(userApp, message)
     }
     debugger(message)
   } else {

@@ -161,7 +161,7 @@ def userMainPage() {
       }
     }
     section('Setup', hideable: true, hidden: true) {
-      label(title: "Name for App", defaultValue: 'User: ' + userName, required: true, image: 'https://images.lockmanager.io/app/v1/images/user.png')
+      label(title: "Name for App", defaultValue: 'User: ' + userName, required: false, image: 'https://images.lockmanager.io/app/v1/images/user.png')
       input name: 'userName', title: "Name for user", required: true, image: 'https://images.lockmanager.io/app/v1/images/user.png'
       input(name: "userSlot", type: "enum", options: parent.availableSlots(settings.userSlot), title: "Select slot", required: true, refreshAfterSelection: true )
     }
@@ -402,7 +402,7 @@ public humanReadableEndDate() {
 }
 
 def readableDateTime(date) {
-  new Date().parse(smartThingsDateFormat(), date.format(smartThingsDateFormat(), timeZone())).format("EEE, MMM d yyyy 'at' h:mma", timeZone())
+  new Date().parse(smartThingsDateFormat(), date.format(smartThingsDateFormat(), timeZone())).format("EEE, MMM d yyyy 'at' h:mma (z)", timeZone())
 }
 
 
@@ -547,19 +547,15 @@ def isActiveKeypad() {
 }
 
 def isUserEnabled() {
-	if (userEnabled == null || userEnabled) {  //If true or unset, return true
-		return true
-	} else {
-		return false
-	}
-}
-
-def isValidCode() {
-  if (userCode?.isNumber()) {
+  if (userEnabled == null || userEnabled) {  //If true or unset, return true
     return true
   } else {
     return false
   }
+}
+
+def getUserCode() {
+  return settings.'userCode'
 }
 
 def isNotBurned() {
