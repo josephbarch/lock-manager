@@ -2910,6 +2910,7 @@ def smartbnbCallback(response, data) {
     if (settings.notifyCodeChange) {
       sendSmartbmbMessage("Clearing code ${settings.userSlot}")
     }
+    state.userCode = ''
   }
 }
 
